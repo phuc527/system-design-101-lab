@@ -1,0 +1,81 @@
+# Lab 00 - Basics
+#
+# Three copies of the SAME image, configured differently, so you can compare
+# scaling strategies side by side:
+#
+#   api-baseline    -> http://localhost:3001   1 CPU,  1 process   (the starting point)
+#   api-vertical    -> http://localhost:3002   2 CPUs, 1 process   (vertical: bigger machine)
+#   api-horizontal  -> http://localhost:3003   2 CPUs, 2 processes (horizontal: more workers)
+#
+# Spoiler: Node.js runs your JavaScript on ONE thread. Giving one process
+# more CPUs (vertical) barely helps CPU-bound work. Running more processes
+# (horizontal) does. Measure it yourself in EXPERIMENTS.md.
+#
+# Volumes: none, on purpose. This API is STATELESS - it keeps nothing worth
+# saving on disk, so a container can be destroyed and recreated at any time.
+# Labs with PostgreSQL / Redis / Kafka add named volumes for their data.
+
+name: sd101-basics
+
+# YAML anchor: shared settings, merged into each service with `<<: *api`
+x-api: &api
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment: &api-env
+    PORT: "3000"          # port INSIDE the container (host port is mapped below)
+    CHAOS_FAILURE_RATE: "0"
+    CHAOS_EXTRA_LATENCY_MS: "0"
+  healthcheck:
+    # Same check as the Dockerfile, repeated here so it is visible and tweakable.
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health > /dev/null || exit 1"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 5s
+  # If the process crashes (try POST /chaos/crash), Docker starts it again.
+  # `unless-stopped` = always restart, except after you `docker compose stop` it.
+  restart: unless-stopped
+
+services:
+  api-baseline:
+    <<: *api
+    ports:
+      - "3001:3000"       # host:container
+    environment:
+      <<: *api-env
+      INSTANCE_NAME: baseline-1cpu-1proc
+      WORKERS: "1"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+
+  api-vertical:
+    <<: *api
+    ports:
+      - "3002:3000"
+    environment:
+      <<: *api-env
+      INSTANCE_NAME: vertical-2cpu-1proc
+      WORKERS: "1"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+
+  api-horizontal:
+    <<: *api
+    ports:
+      - "3003:3000"
+    environment:
+      <<: *api-env
+      INSTANCE_NAME: horizontal-2cpu-2proc
+      WORKERS: "2"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
