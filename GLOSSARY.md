@@ -52,6 +52,18 @@ waiting on a service that is already down. Then it lets a few test requests thro
 States: `CLOSED → OPEN → HALF_OPEN → CLOSED`.
 Lab: [18-circuit-breaker](18-circuit-breaker/)
 
+### Connection Draining
+Gracefully removing a server from rotation: it reports unhealthy, the load balancer stops sending *new* requests, in-flight requests finish, then the process exits. Needed for zero-downtime deploys.
+Rule: `LB detection time < drain time < orchestrator grace period`.
+
+```ts
+process.on("SIGTERM", () => {
+  shuttingDown = true;                       // /health now returns 503
+  setTimeout(() => server.close(), DRAIN_MS); // then stop accepting connections
+});
+```
+Lab: [01-load-balancer](01-load-balancer/) (experiment 11)
+
 ### Consistency
 Every read returns the most recent write. **Strong** consistency: always the latest. **Eventual** consistency:
 replicas may disagree for a while, but converge if writes stop.
@@ -87,6 +99,10 @@ The system keeps working (maybe degraded) when parts of it fail. Achieved with r
 timeouts, fallbacks. Example: the Node `cluster` primary forks a new worker when one crashes.
 Lab: [00-basics](00-basics/) (`POST /chaos/crash`)
 
+### Health Check
+How a load balancer decides whether a server should get traffic. **Active:** the LB calls `GET /health` every few seconds. **Passive:** the LB counts real requests that fail (errors, timeouts, 5xx). Thresholds (e.g. 2 failures → DOWN, 2 successes → UP) prevent flapping.
+Labs: [01-load-balancer](01-load-balancer/), [17-health-check](17-health-check/)
+
 ### Horizontal Scaling
 Adding *more machines/processes* (scale out) instead of a bigger one. Needs a load balancer and
 stateless services. Can scale almost without limit, but adds coordination problems.
@@ -107,6 +123,10 @@ Lab: [20-idempotency](20-idempotency/)
 Time for one request to complete, usually in milliseconds. Report it as percentiles (p50, p95, p99),
 not averages, because averages hide slow requests.
 Lab: [00-basics](00-basics/) (`GET /api/latency`)
+
+### Least Connections
+Load-balancing algorithm: send each request to the server with the fewest requests in flight. Adapts to slow servers (in lab 01 it gave 3.7× the throughput of round robin with one slow server), but behaves like round robin when a burst arrives all at once.
+Lab: [01-load-balancer](01-load-balancer/)
 
 ### Load Balancer
 Sits in front of several servers and spreads incoming requests across them (round robin, least connections...).
@@ -148,6 +168,14 @@ Lab: [00-basics](00-basics/)
 Copying data to several nodes, for availability (one node dies, others still have the data) and read scaling.
 See *Database Replication*.
 
+### Reverse Proxy
+A server that receives requests on behalf of backend servers and forwards them. Clients never talk to the backends directly. Load balancers, API gateways and CDNs are reverse proxies. (A *forward* proxy does the opposite: it acts on behalf of clients.)
+Lab: [01-load-balancer](01-load-balancer/)
+
+### Round Robin
+The simplest load-balancing algorithm: servers take turns (1, 2, 3, 1, 2, 3...). Fair when servers and requests are identical, blind to a server that's slow.
+Lab: [01-load-balancer](01-load-balancer/)
+
 ### Retry
 Trying a failed operation again. Safe only with **timeouts**, **backoff + jitter**, a **retry limit**, and **idempotent** operations.
 Unlimited retries can turn a small outage into a total one (retry storm).
@@ -160,6 +188,10 @@ Requests Per Second, the usual throughput unit for APIs. Related: QPS (queries p
 The ability to handle more load by adding resources. A scalable system's cost grows roughly
 linearly with load, and its latency stays acceptable.
 Labs: [00-basics](00-basics/), [22-horizontal-scaling](22-horizontal-scaling/)
+
+### Sticky Session (Session Affinity)
+Routing the same client to the same server every time (by cookie, IP hash, or a user-ID hash), usually because the server keeps that user's state in memory. A workaround with costs: uneven load, and lost state when that server dies. Prefer stateless servers.
+Labs: [01-load-balancer](01-load-balancer/) (experiment 9), [22-horizontal-scaling](22-horizontal-scaling/)
 
 ### Stateless
 A service that keeps no per-user data in its own memory between requests. Any instance can serve any request,

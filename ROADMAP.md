@@ -24,7 +24,7 @@ flowchart LR
 
 | Lab | Key ideas |
 |---|---|
-| 01-load-balancer | Nginx reverse proxy, round robin, least connections, passive/active health checks |
+| [01-load-balancer](01-load-balancer/) | Nginx reverse proxy, round robin, least connections, passive/active health checks |
 | 22-horizontal-scaling | stateless services, shared sessions in Redis, scaling to N instances |
 | 13-cdn | edge caching, origin offload, TTL, invalidation |
 
@@ -115,7 +115,7 @@ The folders are numbered by topic, but some labs depend on others. Recommended o
 ## Progress
 
 - [x] 00-basics
-- [ ] 01-load-balancer
+- [x] 01-load-balancer
 - [ ] 02-caching
 - [ ] 03-redis
 - [ ] 04-database-index

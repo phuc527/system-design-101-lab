@@ -1,0 +1,119 @@
+# Lab 01 - Load Balancer
+#
+#                     ┌──▶ api1 (:3001 direct)
+#   :8090  nginx ─────┼──▶ api2 (:3002 direct)
+#   :8091  node-lb ───┴──▶ api3 (:3003 direct)
+#
+#   nginx    production-grade LB; strategy chosen with NGINX_STRATEGY
+#   node-lb  hand-written TypeScript LB (src/lb) with ACTIVE health checks
+#   api1-3   three identical API instances, 1 CPU each
+#
+# Ports 3001-3003 bypass the load balancers. Use them to target ONE instance
+# (chaos mode, stats). Real clients would only ever see :8090.
+
+name: sd101-lb
+
+x-api: &api
+  build:
+    context: .
+  image: sd101-lb-app:latest   # built once, reused by api1-3 and node-lb
+  command: ["node", "dist/api/server.js"]
+  environment: &api-env
+    PORT: "3000"
+    DRAIN_MS: "6000"           # graceful shutdown: report unhealthy for 6s (> LB detection time) before closing
+  healthcheck:
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health > /dev/null || exit 1"]
+    interval: 5s
+    timeout: 2s
+    retries: 3
+    start_period: 5s
+  restart: unless-stopped      # crashed instances come back (try POST /admin/crash)
+  # How long `docker compose stop` waits after SIGTERM before SIGKILL (exit code 137).
+  # Must be > DRAIN_MS + the longest request, or draining is cut short.
+  # (Don't rely on the default: on the machine this lab was built on it was only 3s.)
+  stop_grace_period: 15s
+  deploy:
+    resources:
+      limits:
+        cpus: "1"              # each instance = 1 CPU, so adding instances adds capacity
+        memory: 256M
+
+services:
+  api1:
+    <<: *api
+    ports: ["3001:3000"]
+    environment:
+      <<: *api-env
+      INSTANCE_NAME: api1
+
+  api2:
+    <<: *api
+    ports: ["3002:3000"]
+    environment:
+      <<: *api-env
+      INSTANCE_NAME: api2
+
+  api3:
+    <<: *api
+    ports: ["3003:3000"]
+    environment:
+      <<: *api-env
+      INSTANCE_NAME: api3
+
+  nginx:
+    image: nginx:1.30-alpine
+    ports: ["8090:80"]
+    environment:
+      # Pick the algorithm:  NGINX_STRATEGY=least-conn docker compose up -d nginx
+      NGINX_STRATEGY: ${NGINX_STRATEGY:-round-robin}
+    volumes:
+      # Bind mounts (read-only): edit the files on your machine, then recreate/reload nginx.
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/upstreams:/etc/nginx/upstreams:ro
+    depends_on:
+      api1: { condition: service_healthy }
+      api2: { condition: service_healthy }
+      api3: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/lb-health > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 128M
+
+  node-lb:
+    build:
+      context: .
+    image: sd101-lb-app:latest   # same image as the APIs, different program
+    command: ["node", "dist/lb/server.js"]
+    ports: ["8091:8091"]
+    environment:
+      LB_PORT: "8091"
+      BACKENDS: "http://api1:3000,http://api2:3000,http://api3:3000"
+      LB_STRATEGY: ${LB_STRATEGY:-round-robin}
+      HEALTH_CHECK_INTERVAL_MS: "2000"
+      HEALTH_CHECK_TIMEOUT_MS: "1000"
+      UNHEALTHY_THRESHOLD: "2"
+      HEALTHY_THRESHOLD: "2"
+      PROXY_TIMEOUT_MS: ${PROXY_TIMEOUT_MS:-5000}   # try PROXY_TIMEOUT_MS=1000 docker compose up -d --no-deps node-lb
+    depends_on:
+      api1: { condition: service_healthy }
+      api2: { condition: service_healthy }
+      api3: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8091/lb/health > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 128M

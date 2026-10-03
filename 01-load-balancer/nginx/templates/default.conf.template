@@ -1,0 +1,57 @@
+# This is a TEMPLATE. At container start, the official nginx image runs envsubst
+# on /etc/nginx/templates/*.template and writes the result to /etc/nginx/conf.d/.
+# Only variables that exist in the container's environment are replaced, so
+# Nginx's own variables like $host or $remote_addr are left alone.
+#
+# NGINX_STRATEGY selects which upstream block is used:
+#   round-robin | least-conn | ip-hash | weighted | hash
+include /etc/nginx/upstreams/${NGINX_STRATEGY}.conf;
+
+server {
+    listen 80;
+
+    # The load balancer's OWN health (used by Docker's healthcheck).
+    location = /lb-health {
+        access_log off;
+        return 200 '{"status":"ok","strategy":"${NGINX_STRATEGY}"}';
+    }
+
+    # Built-in connection counters: active / accepted / handled / requests.
+    location = /nginx_status {
+        stub_status;
+        access_log off;
+    }
+
+    location / {
+        proxy_pass http://api_backend;
+
+        # Reuse TCP connections to the backends (needs HTTP/1.1 + empty Connection header).
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        # Without these, every backend would think all traffic comes from Nginx's IP.
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeouts: how long to wait before declaring an attempt failed.
+        proxy_connect_timeout 1s;    # TCP connect to backend (dead host -> fail fast)
+        proxy_send_timeout    5s;
+        proxy_read_timeout    5s;    # backend accepted but is silent (hung / overloaded)
+
+        # PASSIVE health checks + retries:
+        # on these failures, try the NEXT server (at most 2 tries in total, within 6s).
+        # Each failure also counts toward that server's max_fails (see upstreams/*.conf).
+        # Note: Nginx never retries non-idempotent requests (POST, PATCH...) once they
+        # were sent to a backend, unless you add "non_idempotent" - dangerous for payments.
+        proxy_next_upstream         error timeout http_500 http_502 http_503 http_504;
+        proxy_next_upstream_tries   2;
+        proxy_next_upstream_timeout 6s;
+
+        # Debug headers so you can see the LB's decision from curl -i.
+        add_header X-Upstream-Addr   $upstream_addr always;
+        add_header X-Upstream-Status $upstream_status always;
+        add_header X-LB-Strategy     ${NGINX_STRATEGY} always;
+    }
+}

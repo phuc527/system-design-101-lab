@@ -31,7 +31,7 @@ Understand the concept → See the architecture → Run the simplest version
 | # | Lab | You'll learn | Status |
 |---|---|---|---|
 | 00 | [basics](00-basics/) | latency, throughput, bandwidth, availability, reliability, fault tolerance, scaling, CAP | ✅ |
-| 01 | load-balancer | Nginx, round robin, least connections, health checks | ⏳ |
+| 01 | [load-balancer](01-load-balancer/) | Nginx + a TypeScript LB, 5 strategies, active vs passive health checks, draining | ✅ |
 | 02 | caching | cache-aside, write-through, TTL, invalidation, stampede | ⏳ |
 | 03 | redis | data structures, counters, sessions, distributed locks | ⏳ |
 | 04 | database-index | B-tree, composite indexes, EXPLAIN ANALYZE | ⏳ |
